@@ -12,11 +12,12 @@ double** create_two_dimensional_array(int, int);
 void free_two_dimensional_array(double**, int);
 void print_grid(double**, int, int);
 void set_boundary_values(double**, int, int, int);
+void print_to_file(char*, double**, int, int);
 
 int main(int argc, char *argv[])
 {
-	#define TIME 10.0
-	#define ITERATIONS_PER_TIME 1000
+	#define TIME 1000.0
+	#define ITERATIONS_PER_TIME 100
 	#define KAPPA 0.000001
 	#define SIZE 1.0
 
@@ -67,7 +68,7 @@ int main(int argc, char *argv[])
 		}
 		else 
 		{
-			printf("Strong scaling is enabled\n");
+			printf("Strong scaling (default) is enabled\n");
 		}
 
 		printf("\n");
@@ -142,6 +143,7 @@ int main(int argc, char *argv[])
 	}
 
 	print_grid(local_grid, local_grid_y_size, local_grid_x_size);
+	print_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
 
 	// TODO: Enable this when multinode communication is implemented. Currently frees a already freed array.
 	//free_two_dimensional_array(global_grid, global_grid_y_size);
@@ -234,4 +236,32 @@ void set_boundary_values(double** array, int array_size_y, int array_size_x, int
 			array[i][0] = 1.0;
 		}
 	}
+}
+
+void print_to_file(char* file_name, double** array, int array_size_y, int array_size_x) {
+	FILE* file = fopen(file_name, "w");
+
+	if (file == NULL) 
+	{
+		printf("ERROR: Could not open file for writing. Filename: %s\n", file_name);
+		exit(EXIT_FAILURE);
+	}
+
+	for (int r = 0; r < array_size_y; r++)
+	{
+		for (int c = 0; c < array_size_x; c++) 
+		{
+			if (c != (array_size_x - 1)) // If not last element on row.
+			{
+				fprintf(file, "%f, ", array[r][c]);
+			}
+			else 
+			{
+				// Last cell on row should not have a following comma and should print 
+				fprintf(file, "%f\n", array[r][c]);
+			}
+		}
+	}
+
+	fclose(file);
 }
