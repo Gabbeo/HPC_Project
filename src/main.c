@@ -23,15 +23,19 @@ int main(int argc, char *argv[])
 	#define NDIMS 2
 	#define PERIODIC 0
 	#define REORDER 1
+	#define N 0
+	#define E 1
+	#define S 2
+	#define W 3
 
 	// Global vairables.
 	int world_size;
-	int weak_scaling = 0; // Should the problem size increase with the number of nodes?
-	int global_grid_x_size = 1000; // Grid size in x-dimension.
-	int global_grid_y_size = 1000; // Same as above but y.
+	int weak_scaling = 0; 											// Should the problem size increase with the number of nodes?
+	int global_grid_x_size = 1000; 									// Grid size in x-dimension.
+	int global_grid_y_size = 1000; 									// Same as above but y.
 	int x_nodes = 1;
 	int y_nodes = 1;
-	int number_of_time_steps = (int) TIME * ITERATIONS_PER_TIME; // Default value.
+	int number_of_time_steps = (int) TIME * ITERATIONS_PER_TIME; 	// Default value.
 	MPI_Comm cart_comm;
 	double** global_grid = NULL;
 
@@ -41,7 +45,8 @@ int main(int argc, char *argv[])
 	int world_coord_2d[NDIMS];
 	int local_grid_x_size = 0;
 	int local_grid_y_size = 0;
-	int borders = 0;
+	int ghost_borders = 0; 												// 1 = N, 2 = E, 4 = S, 8 = W.
+	int bordering_ranks[4]; 											// 0 = N, 1 = E, 2 = S, 3 = W. MPI_PROC_NULL if it's an edge border.
 	double** local_grid = NULL;
 
 	MPI_Init(&argc, &argv);
@@ -115,14 +120,29 @@ int main(int argc, char *argv[])
 	int periodic[NDIMS] = {PERIODIC, PERIODIC};
 
 	MPI_Cart_create(MPI_COMM_WORLD, NDIMS, dimensions, periodic, REORDER, &cart_comm);
+	MPI_Cart_coords(cart_comm, world_rank, NDIMS, world_coord_2d);
 	MPI_Cart_rank(cart_comm, world_coord_2d, &world_rank_2d);
 
+	// Calculate if a border is a ghost-cell border or if it's border values using the cartesian topology.
+	const int source = world_coord_2d; // MPI_Cart_shift changes the source input so we need a buffer.
+
+	// Get the neighbours for the current rank.
+	MPI_Cart_shift(cart_comm, 0, +1, &source, &(bordering_ranks[N]));
+	MPI_Cart_shift(cart_comm, 1, +1, &source, &(bordering_ranks[E]));
+	MPI_Cart_shift(cart_comm, 0, -1, &source, &(bordering_ranks[S]));
+	MPI_Cart_shift(cart_comm, 1, -1, &source, &(bordering_ranks[W]));
+
+	// Store which borders should be ghost borders.
+	if (bordering_ranks[N] != MPI_PROC_NULL) ghost_borders |= (1 << N);
+	if (bordering_ranks[E] != MPI_PROC_NULL) ghost_borders |= (1 << E);
+	if (bordering_ranks[S] != MPI_PROC_NULL) ghost_borders |= (1 << S);
+	if (bordering_ranks[W] != MPI_PROC_NULL) ghost_borders |= (1 << W);
+
 	#ifdef DEBUG
-	MPI_Cart_coords(cart_comm, world_rank, NDIMS, world_coord_2d);
-	printf("I am %d: (%d, %d); originally rank %d\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank);
+	printf("I am %d: (%d, %d); originally rank %d. Ghost borders: %d\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank, ghost_borders);
 	#endif
 
-	// Grid generation/distribution
+	// Grid generation/distribution for world_rank 0.
 	if (world_rank == 0) 
 	{
 		if (!weak_scaling) // Strong scaling enabled (default).
@@ -130,22 +150,15 @@ int main(int argc, char *argv[])
 			// This means that we should generate a grid and "scatter" it.
 			// Allocate memory.
 			// TODO: We should distribute inital values in a sparse way instead!
-			global_grid = create_two_dimensional_grid(global_grid_y_size, global_grid_x_size);
-
-			// Distribute initial values
-
-
-			// Split up and distribute the grid.
-			// TODO
 		}
-		else
+		else // Weak scaling.
 		{
 			// TODO
 		}
 	}	
 
 	// Perform the numerical solving of the equation.
-	local_grid = global_grid;
+	local_grid = ;
 	local_grid_x_size = global_grid_x_size;
 	local_grid_y_size = global_grid_y_size;
 
