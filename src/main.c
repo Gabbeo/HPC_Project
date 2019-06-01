@@ -14,25 +14,36 @@ void print_grid(double**, int, int);
 void set_boundary_values(double**, int, int, int);
 void print_to_file(char*, double**, int, int);
 
+// General information about the code.
+// Since arrays are row-major in C we will follow this convention.
+// row 0, column 0 is in the lower left corner and increases to upwards and to the right respectively.
+
 int main(int argc, char *argv[])
 {
 	#define TIME 1000.0
 	#define ITERATIONS_PER_TIME 100
 	#define KAPPA 0.000001
 	#define SIZE 1.0
+	#define NDIMS 2
+	#define PERIODIC 0
+	#define REORDER 1
 
 	// Global vairables.
 	int world_size;
 	int weak_scaling = 0; // Should the problem size increase with the number of nodes?
 	int global_grid_x_size = 1000; // Grid size in x-dimension.
 	int global_grid_y_size = 1000; // Same as above but y.
+	int x_nodes = 1;
+	int y_nodes = 1;
 	int number_of_time_steps = (int) TIME * ITERATIONS_PER_TIME; // Default value.
+	MPI_Comm cart_comm;
 	double** global_grid = NULL;
 
 	// Local variables
 	int world_rank;
 	int local_grid_x_size = 0;
 	int local_grid_y_size = 0;
+	int borders = 0;
 	double** local_grid = NULL;
 
 	MPI_Init(&argc, &argv);
@@ -41,7 +52,7 @@ int main(int argc, char *argv[])
 
 	// Read arguments
 	int opt;
-	while ((opt = getopt(argc, argv, "x:y:s")) != -1) 
+	while ((opt = getopt(argc, argv, "x:y:X:Y:s")) != -1) 
 	{
 		switch (opt) 
 		{
@@ -50,6 +61,12 @@ int main(int argc, char *argv[])
 				break;
 			case 'y':
 				global_grid_y_size = atoi(optarg);
+				break;
+			case 'X':
+				x_nodes = atoi(optarg);
+				break;
+			case 'Y':
+				y_nodes = atoi(optarg);
 				break;
 			case 's':
 				weak_scaling = 1;
@@ -61,6 +78,7 @@ int main(int argc, char *argv[])
 	if (world_rank == 0) 
 	{
 		printf("Solving the 2D heat equation with a grid of size x:%d, y:%d\n", global_grid_x_size, global_grid_y_size);
+		printf("Number of nodes processing nodes, X: %d, Y: %d\n", x_nodes, y_nodes);
 
 		if (weak_scaling)
 		{
@@ -74,6 +92,7 @@ int main(int argc, char *argv[])
 		printf("\n");
 	}
 
+	// Check for configuration errors.
 	// Check if the solution will converge according to the expression stated in the pdf.
 	double delta_t = 1.0 / (double) ITERATIONS_PER_TIME;
 	double h_x_sqrd = pow(SIZE / (double) global_grid_x_size, 2);
@@ -81,12 +100,31 @@ int main(int argc, char *argv[])
 
 	if (delta_t > (MIN(h_x_sqrd, h_y_sqrd) / (4 * KAPPA))) 
 	{
-		printf("ERROR: The time step length is not fine enough to ensure convergence!");
-		return EXIT_FAILURE;
+		printf("ERROR: The time step length is not fine enough to ensure convergence!\n");
+		exit(EXIT_FAILURE);
 	}
 
-	// Since arrays are row-major in C we will follow this convention.
-	// row 0, column 0 is in the lower left corner and increases to upwards and to the right respectively.
+	// Check that the calculation grid is evenly divisible amongst the nodes.
+	if (global_grid_x_size % x_nodes != 0 || global_grid_y_size % y_nodes != 0)
+	{
+		printf("ERROR: The calculation grid cannot be evenly distibuted amongst the computation nodes!\n");
+		exit(EXIT_FAILURE);
+	}
+
+	// Preprocessing and setting up communication.
+	int dimensions[NDIMS] = {y_nodes, x_nodes};
+	int periodic[NDIMS] = {PERIODIC, PERIODIC};
+
+	MPI_Cart_create(MPI_COMM_WORLD, NDIMS, dimensions, periodic, REORDER, &cart_comm);
+
+	int coord_2d[NDIMS];
+	int rank_2d;
+
+	MPI_Cart_coords(cart_comm, world_rank, NDIMS, &coord_2d);
+	MPI_Cart_rank(cart_comm, coord_2d, &rank_2d);
+
+	printf("I am %d: (%d, %d); originally rank %d\n", rank_2d, coord_2d[0], coord_2d[1], world_rank);
+
 	// Grid generation/distribution
 	if (world_rank == 0) 
 	{
@@ -96,8 +134,8 @@ int main(int argc, char *argv[])
 			// Allocate memory.
 			global_grid = create_two_dimensional_array(global_grid_y_size, global_grid_x_size);
 
-			// Set boundary values.
-			set_boundary_values(global_grid, global_grid_y_size, global_grid_x_size, 1 | 2 | 4 | 8);
+			// Distribute initial values
+
 
 			// Split up and distribute the grid.
 			// TODO
@@ -106,7 +144,7 @@ int main(int argc, char *argv[])
 		{
 			// TODO
 		}
-	}
+	}	
 
 	// Perform the numerical solving of the equation.
 	local_grid = global_grid;
