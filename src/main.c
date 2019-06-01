@@ -126,13 +126,13 @@ int main(int argc, char *argv[])
 	MPI_Cart_rank(cart_comm, world_coord_2d, &world_rank_2d);
 
 	// Calculate if a border is a ghost-cell border or if it's border values using the cartesian topology.
-	const int source = world_coord_2d; // MPI_Cart_shift changes the source input so we need a buffer.
+	int source[4] = {world_coord_2d, world_coord_2d, world_coord_2d, world_coord_2d}; // MPI_Cart_shift changes the source input so we need a buffer.
 
 	// Get the neighbours for the current rank.
-	MPI_Cart_shift(cart_comm, 0, +1, &source, &(bordering_ranks[N]));
-	MPI_Cart_shift(cart_comm, 1, +1, &source, &(bordering_ranks[E]));
-	MPI_Cart_shift(cart_comm, 0, -1, &source, &(bordering_ranks[S]));
-	MPI_Cart_shift(cart_comm, 1, -1, &source, &(bordering_ranks[W]));
+	MPI_Cart_shift(cart_comm, 0, +1, &(source[N]), &(bordering_ranks[N]));
+	MPI_Cart_shift(cart_comm, 1, +1, &(source[E]), &(bordering_ranks[E]));
+	MPI_Cart_shift(cart_comm, 0, -1, &(source[S]), &(bordering_ranks[S]));
+	MPI_Cart_shift(cart_comm, 1, -1, &(source[W]), &(bordering_ranks[W]));
 
 	// Store which borders should be ghost borders.
 	if (bordering_ranks[N] != MPI_PROC_NULL) ghost_borders |= (1 << N);
@@ -141,7 +141,7 @@ int main(int argc, char *argv[])
 	if (bordering_ranks[W] != MPI_PROC_NULL) ghost_borders |= (1 << W);
 
 	#ifdef DEBUG
-	printf("I am %d: (%d, %d); originally rank %d. Ghost borders: %d\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank, ghost_borders);
+	printf("I am %d: (%d, %d); originally 2d_rank %d. Ghost borders: %d\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank, ghost_borders);
 	#endif
 
 	// Grid generation/distribution for world_rank 0.
@@ -160,9 +160,15 @@ int main(int argc, char *argv[])
 	}	
 
 	// Perform the numerical solving of the equation.
-	local_grid = ;
-	local_grid_x_size = global_grid_x_size;
-	local_grid_y_size = global_grid_y_size;
+	// We should increase the size of the grid if there are ghost cells on the edges.
+	// The bitshifting adds one to the dimension if there is a ghost cell on that dimension.
+	local_grid_x_size = (global_grid_x_size / x_nodes) + ((ghost_borders & (1 << E)) >> E) + ((ghost_borders & (1 << W)) >> W);
+	local_grid_y_size = (global_grid_y_size / y_nodes) + ((ghost_borders & (1 << N)) >> N) + ((ghost_borders & (1 << S)) >> S);
+	local_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
+
+	#ifdef DEBUG
+	printf("Local grid size for rank %d: x: %d, y: %d\n", world_rank_2d, local_grid_x_size, local_grid_y_size);
+	#endif
 
 	// Loop over time.
 	for (int t = 0; t < number_of_time_steps; t++) 
@@ -171,7 +177,7 @@ int main(int argc, char *argv[])
 		double** new_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
 
 		// Set boundary values again for the new grid.
-		set_boundary_values(new_grid, local_grid_y_size, local_grid_x_size, 1 | 2 | 4 | 8);
+		set_boundary_values(new_grid, local_grid_y_size, local_grid_x_size, ~ghost_borders);
 
 		// Peform the numerical solving using Taylor expansion.
 		// We should never have a cell on the edge as the center in the iteration.
@@ -193,9 +199,12 @@ int main(int argc, char *argv[])
 		local_grid = new_grid;
 	}
 
-	print_grid(local_grid, local_grid_y_size, local_grid_x_size);
-	print_grid_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
-	
+	if (world_rank = 0) 
+	{
+		print_grid(local_grid, local_grid_y_size, local_grid_x_size);	
+		print_grid_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
+	}
+
 	MPI_Finalize();
 
 	return 0;
