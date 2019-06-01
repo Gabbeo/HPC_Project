@@ -78,6 +78,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Print information about the run.
+	#ifdef DEBUG
 	if (world_rank == 0) 
 	{
 		printf("Solving the 2D heat equation with a grid of size x:%d, y:%d\n", global_grid_x_size, global_grid_y_size);
@@ -94,6 +95,7 @@ int main(int argc, char *argv[])
 
 		printf("\n");
 	}
+	#endif
 
 	// Check for configuration errors.
 	// Check if the solution will converge according to the expression stated in the pdf.
@@ -193,10 +195,7 @@ int main(int argc, char *argv[])
 
 	print_grid(local_grid, local_grid_y_size, local_grid_x_size);
 	print_grid_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
-
-	// TODO: Enable this when multinode communication is implemented. Currently frees a already freed array.
-	//free_two_dimensional_grid(global_grid, global_grid_y_size);
-
+	
 	MPI_Finalize();
 
 	return 0;
