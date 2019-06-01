@@ -5,14 +5,9 @@
 #include <math.h>
 #include <mpi.h>
 
-#define MIN(x, y) (((x) < (y)) ? (x) : (y)) // Credit: https://stackoverflow.com/questions/3437404/min-and-max-in-c
+#include "grid.h"
 
-void print_usage();
-double** create_two_dimensional_array(int, int);
-void free_two_dimensional_array(double**, int);
-void print_grid(double**, int, int);
-void set_boundary_values(double**, int, int, int);
-void print_to_file(char*, double**, int, int);
+#define MIN(x, y) (((x) < (y)) ? (x) : (y)) // Credit: https://stackoverflow.com/questions/3437404/min-and-max-in-c
 
 // General information about the code.
 // Since arrays are row-major in C we will follow this convention.
@@ -20,6 +15,7 @@ void print_to_file(char*, double**, int, int);
 
 int main(int argc, char *argv[])
 {
+	#define DEBUG 1
 	#define TIME 1000.0
 	#define ITERATIONS_PER_TIME 100
 	#define KAPPA 0.000001
@@ -41,6 +37,8 @@ int main(int argc, char *argv[])
 
 	// Local variables
 	int world_rank;
+	int world_rank_2d;
+	int world_coord_2d[NDIMS];
 	int local_grid_x_size = 0;
 	int local_grid_y_size = 0;
 	int borders = 0;
@@ -112,27 +110,27 @@ int main(int argc, char *argv[])
 	}
 
 	// Preprocessing and setting up communication.
+	// Setting up the cartesian topology.
 	int dimensions[NDIMS] = {y_nodes, x_nodes};
 	int periodic[NDIMS] = {PERIODIC, PERIODIC};
 
 	MPI_Cart_create(MPI_COMM_WORLD, NDIMS, dimensions, periodic, REORDER, &cart_comm);
+	MPI_Cart_rank(cart_comm, world_coord_2d, &world_rank_2d);
 
-	int coord_2d[NDIMS];
-	int rank_2d;
-
-	MPI_Cart_coords(cart_comm, world_rank, NDIMS, &coord_2d);
-	MPI_Cart_rank(cart_comm, coord_2d, &rank_2d);
-
-	printf("I am %d: (%d, %d); originally rank %d\n", rank_2d, coord_2d[0], coord_2d[1], world_rank);
+	#ifdef DEBUG
+	MPI_Cart_coords(cart_comm, world_rank, NDIMS, world_coord_2d);
+	printf("I am %d: (%d, %d); originally rank %d\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank);
+	#endif
 
 	// Grid generation/distribution
 	if (world_rank == 0) 
 	{
-		if (!weak_scaling) 
+		if (!weak_scaling) // Strong scaling enabled (default).
 		{
 			// This means that we should generate a grid and "scatter" it.
 			// Allocate memory.
-			global_grid = create_two_dimensional_array(global_grid_y_size, global_grid_x_size);
+			// TODO: We should distribute inital values in a sparse way instead!
+			global_grid = create_two_dimensional_grid(global_grid_y_size, global_grid_x_size);
 
 			// Distribute initial values
 
@@ -155,7 +153,7 @@ int main(int argc, char *argv[])
 	for (int t = 0; t < number_of_time_steps; t++) 
 	{
 		// Create matrix for next time step.
-		double** new_grid = create_two_dimensional_array(local_grid_y_size, local_grid_x_size);
+		double** new_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
 
 		// Set boundary values again for the new grid.
 		set_boundary_values(new_grid, local_grid_y_size, local_grid_x_size, 1 | 2 | 4 | 8);
@@ -176,130 +174,17 @@ int main(int argc, char *argv[])
 			}
 		}
 
-		free_two_dimensional_array(local_grid, local_grid_y_size);
+		free_two_dimensional_grid(local_grid, local_grid_y_size);
 		local_grid = new_grid;
 	}
 
 	print_grid(local_grid, local_grid_y_size, local_grid_x_size);
-	print_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
+	print_grid_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
 
 	// TODO: Enable this when multinode communication is implemented. Currently frees a already freed array.
-	//free_two_dimensional_array(global_grid, global_grid_y_size);
+	//free_two_dimensional_grid(global_grid, global_grid_y_size);
 
 	MPI_Finalize();
 
 	return 0;
-}
-
-// --------------------- functions ---------------------
-
-void print_usage(char *program)
-{
-	fprintf(stderr, "Usage: %s [-r size of cell grid edge, default 1000]\n [-s enables scaling functionality]\n", program);
-}
-
-double** create_two_dimensional_array(int array_size_y, int array_size_x)
-{
-	double** array = malloc(array_size_y * sizeof(int*));
-	for (int i = 0; i < array_size_y; i++) 
-	{
-		array[i] = calloc(array_size_x, sizeof(double));
-	}
-
-	return array;
-}
-
-void free_two_dimensional_array(double** array, int array_size_y)
-{
-	if (array != NULL)
-	{
-		// Delete allocated memory.
-		for (int i = 0; i < array_size_y; i++) {
-			free(array[i]);
-		}
-		free(array);
-	}
-}
-
-void print_grid(double** grid, int array_size_y, int array_size_x) 
-{
-	for (int r = 0; r < array_size_y; r++)
-	{
-		for (int c = 0; c < array_size_x; c++) 
-		{
-			printf("%f ", grid[r][c]);
-		}
-		printf("\n");
-	}
-	printf("\n");
-}
-
-/* 
-	Sets the boundaries of the array to 1.0.
-	The boundary int tells what edges should be set to one.
-	boundaries | 1 is the top row.
-	boundaries | 2 is the rightmost column.
-	boundaries | 4 is the bottom row.
-	boundaries | 8 is the leftmost column.
-*/
-void set_boundary_values(double** array, int array_size_y, int array_size_x, int boundaries) 
-{
-	// Set boundary values again for the new grid.
-	
-	if (boundaries & 1) // Top row.
-	{
-		for (int i = 0; i < array_size_x; i++)
-		{	
-			array[array_size_y - 1][i] = 1.0;
-		}
-	}
-	if (boundaries & 2) // Rightmost column.
-	{
-		for (int i = 0; i < array_size_y; i++) 
-		{
-			array[i][array_size_x - 1] = 1.0;
-		}
-	}
-	if (boundaries & 4) // Bottom row.
-	{
-		for (int i = 0; i < array_size_x; i++)
-		{
-			array[0][i] = 1.0;
-		}
-	}
-	if (boundaries & 8) // Leftmost column.
-	{
-		for (int i = 0; i < array_size_y; i++) 
-		{
-			array[i][0] = 1.0;
-		}
-	}
-}
-
-void print_to_file(char* file_name, double** array, int array_size_y, int array_size_x) {
-	FILE* file = fopen(file_name, "w");
-
-	if (file == NULL) 
-	{
-		printf("ERROR: Could not open file for writing. Filename: %s\n", file_name);
-		exit(EXIT_FAILURE);
-	}
-
-	for (int r = 0; r < array_size_y; r++)
-	{
-		for (int c = 0; c < array_size_x; c++) 
-		{
-			if (c != (array_size_x - 1)) // If not last element on row.
-			{
-				fprintf(file, "%f, ", array[r][c]);
-			}
-			else 
-			{
-				// Last cell on row should not have a following comma and should print 
-				fprintf(file, "%f\n", array[r][c]);
-			}
-		}
-	}
-
-	fclose(file);
 }
