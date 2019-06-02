@@ -23,10 +23,6 @@ int main(int argc, char *argv[])
 	#define NDIMS 2
 	#define PERIODIC 0
 	#define REORDER 1
-	#define N 0
-	#define E 1
-	#define S 2
-	#define W 3
 
 	// Global vairables.
 	int world_size;
@@ -45,7 +41,7 @@ int main(int argc, char *argv[])
 	int world_coord_2d[NDIMS];
 	int local_grid_x_size = 0;
 	int local_grid_y_size = 0;
-	int ghost_borders = 0; 												// 1 = N, 2 = E, 4 = S, 8 = W.
+	int ghost_borders[4]; 												// 0 = N, 1 = E, 2 = S, 3 = W. 
 	int bordering_ranks[4]; 											// 0 = N, 1 = E, 2 = S, 3 = W. MPI_PROC_NULL if it's an edge border.
 	double** local_grid = NULL;
 
@@ -135,13 +131,13 @@ int main(int argc, char *argv[])
 	MPI_Cart_shift(cart_comm, 1, -1, &(source[W]), &(bordering_ranks[W]));
 
 	// Store which borders should be ghost borders.
-	if (bordering_ranks[N] != MPI_PROC_NULL) ghost_borders |= (1 << N);
-	if (bordering_ranks[E] != MPI_PROC_NULL) ghost_borders |= (1 << E);
-	if (bordering_ranks[S] != MPI_PROC_NULL) ghost_borders |= (1 << S);
-	if (bordering_ranks[W] != MPI_PROC_NULL) ghost_borders |= (1 << W);
+	for (int i = 0; i < dir_count; i++) 
+	{
+		ghost_borders[i] = (bordering_ranks[i] != MPI_PROC_NULL);
+	}
 
 	#ifdef DEBUG
-	printf("I am %d: (%d, %d); originally 2d_rank %d. Ghost borders: %d\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank, ghost_borders);
+	printf("I am %d: (%d, %d); originally 2d_rank %d.\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank);
 	#endif
 
 	// Grid generation/distribution for world_rank 0.
@@ -162,13 +158,34 @@ int main(int argc, char *argv[])
 	// Perform the numerical solving of the equation.
 	// We should increase the size of the grid if there are ghost cells on the edges.
 	// The bitshifting adds one to the dimension if there is a ghost cell on that dimension.
-	local_grid_x_size = (global_grid_x_size / x_nodes) + ((ghost_borders & (1 << E)) >> E) + ((ghost_borders & (1 << W)) >> W);
-	local_grid_y_size = (global_grid_y_size / y_nodes) + ((ghost_borders & (1 << N)) >> N) + ((ghost_borders & (1 << S)) >> S);
+	local_grid_x_size = (global_grid_x_size / x_nodes) + ghost_borders[E] + ghost_borders[W];
+	local_grid_y_size = (global_grid_y_size / y_nodes) + ghost_borders[N] + ghost_borders[S];
 	local_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
 
 	#ifdef DEBUG
 	printf("Local grid size for rank %d: x: %d, y: %d\n", world_rank_2d, local_grid_x_size, local_grid_y_size);
 	#endif
+
+	// Prepare for the halo exchange before entering the loop.
+	// The MPI_Neighbor_alltoallv sends/receives data in the following order, N, S, W, E. 
+	// See https://stackoverflow.com/questions/50608184/what-is-the-correct-order-of-send-and-receive-in-mpi-neighbor-alltoallw
+	// For more detail.
+	double* sendbuf = malloc((local_grid_x_size * 2 + local_grid_y_size * 2) * sizeof(double));
+	double* recvbuf = malloc((local_grid_x_size * 2 + local_grid_y_size * 2) * sizeof(double));
+
+	// Calculate how many elements will be sent/received to each direction.
+	int sendcounts[dir_count];
+	sendcounts[N] = local_grid_x_size;
+	sendcounts[E] = local_grid_y_size;
+	sendcounts[S] = local_grid_x_size;
+	sendcounts[W] = local_grid_y_size;
+
+	// Calculate offsets in the send- and receive-buffer respectively.
+	int sdispls[dir_count];
+	for(int i = 0; i < dir_count; i++) 
+	{
+		sdispls[i] = sendcounts[i] * sizeof(double);
+	}
 
 	// Loop over time.
 	for (int t = 0; t < number_of_time_steps; t++) 
@@ -177,7 +194,7 @@ int main(int argc, char *argv[])
 		double** new_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
 
 		// Set boundary values again for the new grid.
-		set_boundary_values(new_grid, local_grid_y_size, local_grid_x_size, ~ghost_borders);
+		set_boundary_values(new_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
 
 		// Peform the numerical solving using Taylor expansion.
 		// We should never have a cell on the edge as the center in the iteration.
@@ -197,13 +214,33 @@ int main(int argc, char *argv[])
 
 		free_two_dimensional_grid(local_grid, local_grid_y_size);
 		local_grid = new_grid;
+
+		// Send/receive ghost cells.
+		// First fill sendbuffer.
+		from_grid_to_ghost_array(local_grid, local_grid_y_size, local_grid_x_size, sendbuf);
+
+		// Send/receive
+		int return_code = MPI_Neighbor_alltoallv(sendbuf, sendcounts, sdispls, MPI_DOUBLE, recvbuf, sendcounts, sdispls, MPI_DOUBLE, cart_comm);
+
+		if (return_code == MPI_SUCCESS) { 
+			char error_string[2000];
+			int length_of_error_string;
+			MPI_Error_string(return_code, error_string, &length_of_error_string);
+			fprintf(stderr, "%3d: %s\n", world_rank_2d, error_string); 
+		}
+
+		// Transfer from receivebuffer to grid.
 	}
 
-	if (world_rank = 0) 
+	if (world_rank_2d == 0) 
 	{
 		print_grid(local_grid, local_grid_y_size, local_grid_x_size);	
 		print_grid_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
 	}
+
+	free_two_dimensional_grid(local_grid, local_grid_y_size);
+	free(sendbuf);
+	free(recvbuf);
 
 	MPI_Finalize();
 

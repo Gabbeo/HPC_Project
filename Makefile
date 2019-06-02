@@ -5,7 +5,7 @@ BIN = ./bin
 TARGET = heat_equation.out
 
 LDFLAGS = -lm 
-CFLAGS = -I./include -g -Wall -O3
+CFLAGS = -g -Wall -O3
 
 all: dir $(BIN)/$(TARGET)
 
