@@ -33,8 +33,8 @@ int main(int argc, char *argv[])
 	int y_nodes = 1;
 	int number_of_time_steps = (int) TIME * ITERATIONS_PER_TIME; 	// Default value.
 	MPI_Comm cart_comm;
-	double** global_grid = NULL;
-
+	double *global_grid;
+	
 	// Local variables
 	int world_rank;
 	int world_rank_2d;
@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
 	int local_grid_y_size = 0;
 	int ghost_borders[4]; 												// 0 = N, 1 = E, 2 = S, 3 = W. 
 	int bordering_ranks[4]; 											// 0 = N, 1 = E, 2 = S, 3 = W. MPI_PROC_NULL if it's an edge border.
-	double** local_grid = NULL;
+	double *local_grid;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
 	// The bitshifting adds one to the dimension if there is a ghost cell on that dimension.
 	local_grid_x_size = (global_grid_x_size / x_nodes) + ghost_borders[E] + ghost_borders[W];
 	local_grid_y_size = (global_grid_y_size / y_nodes) + ghost_borders[N] + ghost_borders[S];
-	local_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
+	local_grid = calloc(array_size_x * array_size_y, sizeof(double));
 
 	#ifdef DEBUG
 	printf("Local grid size for rank %d: x: %d, y: %d\n", world_rank_2d, local_grid_x_size, local_grid_y_size);
@@ -191,7 +191,7 @@ int main(int argc, char *argv[])
 	for (int t = 0; t < number_of_time_steps; t++) 
 	{
 		// Create matrix for next time step.
-		double** new_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
+		double* new_grid = calloc(local_grid_x_size * local_grid_y_size, sizeof(double));
 
 		// Set boundary values again for the new grid.
 		set_boundary_values(new_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
@@ -205,14 +205,17 @@ int main(int argc, char *argv[])
 		{
 			for (int c = 1; c < (local_grid_x_size - 1); c++)
 			{
-				double x_derivative = (local_grid[r][c - 1] + local_grid[r][c + 1] - 2 * local_grid[r][c]) / h_x_sqrd;
-				double y_derivative = (local_grid[r - 1][c] + local_grid[r + 1][c] - 2 * local_grid[r][c]) / h_y_sqrd;
+				double x_derivative = (local_grid[r * local_size_x + c - 1] + local_grid[r * local_size_x + c + 1]
+					- 2 * local_grid[r * local_size_x + c - 1]) / h_x_sqrd;
 
-				new_grid[r][c] = local_grid[r][c] + kappa_delta_t * (x_derivative + y_derivative);
+				double y_derivative = (local_grid[(r - 1) * local_size_x + c] + local_grid[(r + 1) * local_size_x + c]
+					- 2 * local_grid[r * local_size_x + c]) / h_y_sqrd;
+
+				new_grid[r * local_size_x + c] = local_grid[r * local_size_x + c] + kappa_delta_t * (x_derivative + y_derivative);
 			}
 		}
 
-		free_two_dimensional_grid(local_grid, local_grid_y_size);
+		free(local_grid)
 		local_grid = new_grid;
 
 		// Send/receive ghost cells.
@@ -221,8 +224,9 @@ int main(int argc, char *argv[])
 
 		// Send/receive
 		int return_code = MPI_Neighbor_alltoallv(sendbuf, sendcounts, sdispls, MPI_DOUBLE, recvbuf, sendcounts, sdispls, MPI_DOUBLE, cart_comm);
-
-		if (return_code == MPI_SUCCESS) { 
+		
+		//TODO: notera, det stod if return_code == MPI_SUCCESS innan, misstag?
+		if (return_code != MPI_SUCCESS) { 
 			char error_string[2000];
 			int length_of_error_string;
 			MPI_Error_string(return_code, error_string, &length_of_error_string);
@@ -237,8 +241,8 @@ int main(int argc, char *argv[])
 		print_grid(local_grid, local_grid_y_size, local_grid_x_size);	
 		print_grid_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
 	}
-
-	free_two_dimensional_grid(local_grid, local_grid_y_size);
+	
+	free(local_grid);
 	free(sendbuf);
 	free(recvbuf);
 
