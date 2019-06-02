@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <mpi.h>
+
 
 #include "grid.h"
 
@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
 	MPI_Cart_rank(cart_comm, world_coord_2d, &world_rank_2d);
 
 	// Calculate if a border is a ghost-cell border or if it's border values using the cartesian topology.
-	int source[4] = {world_coord_2d, world_coord_2d, world_coord_2d, world_coord_2d}; // MPI_Cart_shift changes the source input so we need a buffer.
+	int source[4]; // MPI_Cart_shift changes the source input so we need a buffer.
 
 	// Get the neighbours for the current rank.
 	MPI_Cart_shift(cart_comm, 0, +1, &(source[N]), &(bordering_ranks[N]));
@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
 	// The bitshifting adds one to the dimension if there is a ghost cell on that dimension.
 	local_grid_x_size = (global_grid_x_size / x_nodes) + ghost_borders[E] + ghost_borders[W];
 	local_grid_y_size = (global_grid_y_size / y_nodes) + ghost_borders[N] + ghost_borders[S];
-	local_grid = calloc(array_size_x * array_size_y, sizeof(double));
+	local_grid = calloc(local_grid_x_size * local_grid_y_size, sizeof(double));
 
 	#ifdef DEBUG
 	printf("Local grid size for rank %d: x: %d, y: %d\n", world_rank_2d, local_grid_x_size, local_grid_y_size);
@@ -205,17 +205,17 @@ int main(int argc, char *argv[])
 		{
 			for (int c = 1; c < (local_grid_x_size - 1); c++)
 			{
-				double x_derivative = (local_grid[r * local_size_x + c - 1] + local_grid[r * local_size_x + c + 1]
-					- 2 * local_grid[r * local_size_x + c - 1]) / h_x_sqrd;
+				double x_derivative = (local_grid[r * local_grid_x_size + c - 1] + local_grid[r * local_grid_x_size + c + 1]
+					- 2 * local_grid[r * local_grid_x_size + c - 1]) / h_x_sqrd;
 
-				double y_derivative = (local_grid[(r - 1) * local_size_x + c] + local_grid[(r + 1) * local_size_x + c]
-					- 2 * local_grid[r * local_size_x + c]) / h_y_sqrd;
+				double y_derivative = (local_grid[(r - 1) * local_grid_x_size + c] + local_grid[(r + 1) * local_grid_x_size + c]
+					- 2 * local_grid[r * local_grid_x_size + c]) / h_y_sqrd;
 
-				new_grid[r * local_size_x + c] = local_grid[r * local_size_x + c] + kappa_delta_t * (x_derivative + y_derivative);
+				new_grid[r * local_grid_x_size + c] = local_grid[r * local_grid_x_size + c] + kappa_delta_t * (x_derivative + y_derivative);
 			}
 		}
 
-		free(local_grid)
+		free(local_grid);
 		local_grid = new_grid;
 
 		// Send/receive ghost cells.

@@ -148,7 +148,7 @@ void from_ghost_array_to_grid(double* ghost_array, double* grid, int grid_size_y
 //Writes the output data into an output file in binary format using Collective MPI I/O
 //The output file format is a <int><int> header with dimensions of the output matrix
 //followed by doubles in row major order consisting of the data in the matrix.
-void MPI_write_output(double* local_array, char* outfile_name, int proc_rank, int *cart_comm_coords,
+void write_output(double* local_array, char* outfile_name, int proc_rank, int *cart_comm_coords,
 	int local_size_x, int local_size_y, int array_size_x, int array_size_y)
 {	
 	int dimensions[2] = {array_size_x, array_size_y};
@@ -164,10 +164,11 @@ void MPI_write_output(double* local_array, char* outfile_name, int proc_rank, in
 		MPI_File_write_at(outfile_handle, 0, dimensions, 2, MPI_INT, MPI_STATUS_IGNORE);
 
 	MPI_Datatype matrix_block;
-	MPI_Type_create_subarray(NDIMS, dimensions, local_dimensions, starts, MPI_ORDER_C, MPI_DOUBLE, &matrix_block);
+	MPI_Type_create_subarray(2, dimensions, local_dimensions, starts_coords, MPI_ORDER_C, MPI_DOUBLE, &matrix_block);
 	MPI_Type_commit(&matrix_block);
 	
 	MPI_Offset header_displacement = 2 * sizeof(int);
 	MPI_File_set_view(outfile_handle, header_displacement, MPI_DOUBLE, matrix_block, "native", MPI_INFO_NULL);
-	MPI_File_write_all(outfile_handle, 
+	MPI_File_write_all(outfile_handle, local_array, local_size_x * local_size_y, MPI_DOUBLE, MPI_STATUS_IGNORE);
+	MPI_File_close(&outfile_handle); 
 }
