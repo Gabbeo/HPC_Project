@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <mpi.h>
+
 
 #include "grid.h"
 
@@ -33,8 +33,8 @@ int main(int argc, char *argv[])
 	int y_nodes = 1;
 	int number_of_time_steps = (int) TIME * ITERATIONS_PER_TIME; 	// Default value.
 	MPI_Comm cart_comm;
-	double** global_grid = NULL;
-
+	double *global_grid;
+	
 	// Local variables
 	int world_rank;
 	int world_rank_2d;
@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
 	int local_grid_y_size = 0;
 	int ghost_borders[4]; 												// 0 = N, 1 = E, 2 = S, 3 = W. 
 	int bordering_ranks[4]; 											// 0 = N, 1 = E, 2 = S, 3 = W. MPI_PROC_NULL if it's an edge border.
-	double** local_grid = NULL;
+	double *local_grid;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
 	// The bitshifting adds one to the dimension if there is a ghost cell on that dimension.
 	local_grid_x_size = (global_grid_x_size / x_nodes) + ghost_borders[E] + ghost_borders[W];
 	local_grid_y_size = (global_grid_y_size / y_nodes) + ghost_borders[N] + ghost_borders[S];
-	local_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
+	local_grid = calloc(local_grid_x_size * local_grid_y_size, sizeof(double));
 
 	#ifdef DEBUG
 	printf("Local grid size for rank %d: x: %d, y: %d\n", world_rank_2d, local_grid_x_size, local_grid_y_size);
@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
 		}
 
 		// Create matrix for next time step.
-		double** new_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
+		double* new_grid = calloc(local_grid_x_size * local_grid_y_size, sizeof(double));
 
 		// Peform the numerical solving using Taylor expansion.
 		// We should never have a cell on the edge as the center in the iteration.
@@ -203,14 +203,17 @@ int main(int argc, char *argv[])
 		{
 			for (int c = 1; c < (local_grid_x_size - 1); c++)
 			{
-				double x_derivative = (local_grid[r][c - 1] + local_grid[r][c + 1] - 2 * local_grid[r][c]) / h_x_sqrd;
-				double y_derivative = (local_grid[r - 1][c] + local_grid[r + 1][c] - 2 * local_grid[r][c]) / h_y_sqrd;
+				double x_derivative = (local_grid[r * local_grid_x_size + c - 1] + local_grid[r * local_grid_x_size + c + 1]
+					- 2 * local_grid[r * local_grid_x_size + c - 1]) / h_x_sqrd;
 
-				new_grid[r][c] = local_grid[r][c] + kappa_delta_t * (x_derivative + y_derivative);
+				double y_derivative = (local_grid[(r - 1) * local_grid_x_size + c] + local_grid[(r + 1) * local_grid_x_size + c]
+					- 2 * local_grid[r * local_grid_x_size + c]) / h_y_sqrd;
+
+				new_grid[r * local_grid_x_size + c] = local_grid[r * local_grid_x_size + c] + kappa_delta_t * (x_derivative + y_derivative);
 			}
 		}
 
-		free_two_dimensional_grid(local_grid, local_grid_y_size);
+		free(local_grid);
 		local_grid = new_grid;
 
 		// Send/receive ghost cells.
@@ -226,12 +229,8 @@ int main(int argc, char *argv[])
 		// Set boundary values again for the new grid.
 		set_boundary_values(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
 	}
-
-	char file_name[50];
-	sprintf(file_name, "result_%d.csv", world_rank_2d);
-	print_grid_to_file(file_name, local_grid, local_grid_y_size, local_grid_x_size);
-
-	free_two_dimensional_grid(local_grid, local_grid_y_size);
+	
+	free(local_grid);
 	free(sendbuf);
 	free(recvbuf);
 
