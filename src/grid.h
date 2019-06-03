@@ -14,4 +14,4 @@ void print_grid(double**, int, int);
 void set_boundary_values(double**, int, int, int*);
 void print_grid_to_file(char*, double**, int, int);
 void from_grid_to_ghost_array(double**, int, int, double*);
-void from_ghost_array_to_grid(double*, double**, int, int);
+void from_ghost_array_to_grid(double*, double**, int, int, int*);

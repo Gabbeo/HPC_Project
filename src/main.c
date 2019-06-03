@@ -15,8 +15,8 @@
 
 int main(int argc, char *argv[])
 {
-	#define DEBUG 1
-	#define TIME 1000.0
+	#define DEBUG
+	#define TIME 10.0
 	#define ITERATIONS_PER_TIME 100
 	#define KAPPA 0.000001
 	#define SIZE 1.0
@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
 	MPI_Cart_rank(cart_comm, world_coord_2d, &world_rank_2d);
 
 	// Calculate if a border is a ghost-cell border or if it's border values using the cartesian topology.
-	int source[4] = {world_coord_2d, world_coord_2d, world_coord_2d, world_coord_2d}; // MPI_Cart_shift changes the source input so we need a buffer.
+	int source[4] = {world_rank_2d, world_rank_2d, world_rank_2d, world_rank_2d}; // MPI_Cart_shift changes the source input so we need a buffer.
 
 	// Get the neighbours for the current rank.
 	MPI_Cart_shift(cart_comm, 0, +1, &(source[N]), &(bordering_ranks[N]));
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
 	#endif
 
 	// Prepare for the halo exchange before entering the loop.
-	// The MPI_Neighbor_alltoallv sends/receives data in the following order, N, S, W, E. 
+	// The MPI_Neighbor_alltoallv sends/receives data in the following order, S, N, W, E (since we have (Y, X)-cartesian topology).  
 	// See https://stackoverflow.com/questions/50608184/what-is-the-correct-order-of-send-and-receive-in-mpi-neighbor-alltoallw
 	// For more detail.
 	double* sendbuf = malloc((local_grid_x_size * 2 + local_grid_y_size * 2) * sizeof(double));
@@ -175,26 +175,24 @@ int main(int argc, char *argv[])
 
 	// Calculate how many elements will be sent/received to each direction.
 	int sendcounts[dir_count];
-	sendcounts[N] = local_grid_x_size;
-	sendcounts[E] = local_grid_y_size;
-	sendcounts[S] = local_grid_x_size;
-	sendcounts[W] = local_grid_y_size;
+	sendcounts[0] = local_grid_x_size; // S
+	sendcounts[1] = local_grid_x_size; // N
+	sendcounts[2] = local_grid_y_size; // W
+	sendcounts[3] = local_grid_y_size; // E
 
 	// Calculate offsets in the send- and receive-buffer respectively.
-	int sdispls[dir_count];
-	for(int i = 0; i < dir_count; i++) 
-	{
-		sdispls[i] = sendcounts[i] * sizeof(double);
-	}
+	int sdispls[dir_count] = {0, local_grid_x_size, local_grid_x_size * 2, local_grid_x_size * 2 + local_grid_y_size};
 
 	// Loop over time.
 	for (int t = 0; t < number_of_time_steps; t++) 
 	{
+		if (world_rank_2d == 0 && t % 100 == 0) 
+		{
+			printf("Currently running iteration %d.\n", t);
+		}
+
 		// Create matrix for next time step.
 		double** new_grid = create_two_dimensional_grid(local_grid_y_size, local_grid_x_size);
-
-		// Set boundary values again for the new grid.
-		set_boundary_values(new_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
 
 		// Peform the numerical solving using Taylor expansion.
 		// We should never have a cell on the edge as the center in the iteration.
@@ -220,23 +218,18 @@ int main(int argc, char *argv[])
 		from_grid_to_ghost_array(local_grid, local_grid_y_size, local_grid_x_size, sendbuf);
 
 		// Send/receive
-		int return_code = MPI_Neighbor_alltoallv(sendbuf, sendcounts, sdispls, MPI_DOUBLE, recvbuf, sendcounts, sdispls, MPI_DOUBLE, cart_comm);
-
-		if (return_code == MPI_SUCCESS) { 
-			char error_string[2000];
-			int length_of_error_string;
-			MPI_Error_string(return_code, error_string, &length_of_error_string);
-			fprintf(stderr, "%3d: %s\n", world_rank_2d, error_string); 
-		}
+		MPI_Neighbor_alltoallv(sendbuf, sendcounts, sdispls, MPI_DOUBLE, recvbuf, sendcounts, sdispls, MPI_DOUBLE, cart_comm);
 
 		// Transfer from receivebuffer to grid.
+		from_ghost_array_to_grid(recvbuf, local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
+
+		// Set boundary values again for the new grid.
+		set_boundary_values(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
 	}
 
-	if (world_rank_2d == 0) 
-	{
-		print_grid(local_grid, local_grid_y_size, local_grid_x_size);	
-		print_grid_to_file("result.csv", local_grid, local_grid_y_size, local_grid_x_size);
-	}
+	char file_name[50];
+	sprintf(file_name, "result_%d.csv", world_rank_2d);
+	print_grid_to_file(file_name, local_grid, local_grid_y_size, local_grid_x_size);
 
 	free_two_dimensional_grid(local_grid, local_grid_y_size);
 	free(sendbuf);
