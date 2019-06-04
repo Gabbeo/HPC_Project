@@ -16,18 +16,6 @@ double** create_two_dimensional_grid(int array_size_y, int array_size_x)
 	return array;
 }
 
-void free_two_dimensional_grid(double** array, int array_size_y)
-{
-	if (array != NULL)
-	{
-		// Delete allocated memory.
-		for (int i = 0; i < array_size_y; i++) {
-			free(array[i]);
-		}
-		free(array);
-	}
-}
-
 void print_grid(double* grid, int array_size_y, int array_size_x) 
 {
 	for (int r = 0; r < array_size_y; r++)
@@ -178,23 +166,42 @@ void from_ghost_array_to_grid(double* ghost_array, double* grid, int grid_size_y
 	}
 }
 
+double* remove_ghost_cells(double* old_grid, int old_grid_size_y, int old_grid_size_x, int* ghost_borders, int* new_grid_size_y, int* new_grid_size_x) 
+{
+	*new_grid_size_y = old_grid_size_y - (ghost_borders[N] + ghost_borders[S]);
+	*new_grid_size_x = old_grid_size_x - (ghost_borders[E] + ghost_borders[W]);
+
+	double* new_grid = malloc((*new_grid_size_x) * (*new_grid_size_y) * sizeof(double));
+	
+	for (int r = ghost_borders[S]; r < ((*new_grid_size_y) + ghost_borders[S]); r++)
+	{
+		int byte_length = (*new_grid_size_x) * sizeof(double);
+		intptr_t from_ptr = (intptr_t) old_grid + (r * old_grid_size_x + ghost_borders[W]) * sizeof(double);
+		intptr_t to_ptr = (intptr_t) new_grid + ((r - ghost_borders[S]) * (*new_grid_size_x)) * sizeof(double);
+
+		memcpy((double*) to_ptr, (double*) from_ptr, byte_length);
+	}
+
+	return new_grid;
+}
+
 //Writes the output data into an output file in binary format using Collective MPI I/O
 //The output file format is a <int><int> header with dimensions of the output matrix
 //followed by doubles in row major order consisting of the data in the matrix.
 void write_output(double* local_array, char* outfile_name, int proc_rank, int *cart_comm_coords,
-	int local_size_x, int local_size_y, int array_size_x, int array_size_y)
-{	
-	int dimensions[2] = {array_size_x, array_size_y};
-	int local_dimensions[2] = {local_size_x, local_size_y};
-	int starts_coords[2];
-	starts_coords[0] = local_size_x * cart_comm_coords[0];
-	starts_coords[1] = local_size_y * cart_comm_coords[1];
+	int local_array_size_y, int local_array_size_x, int global_array_size_y, int global_array_size_x)
+{
+	int dimensions[2] = {global_array_size_y, global_array_size_x};
+	int local_dimensions[2] = {local_array_size_y, local_array_size_x};
+	int starts_coords[2] = {local_array_size_y * cart_comm_coords[0], local_array_size_x * cart_comm_coords[1]};
 
 	MPI_File outfile_handle;
-	MPI_File_open(MPI_COMM_WORLD, outfile_name, MPI_MODE_WRONLY, MPI_INFO_NULL, &outfile_handle);
+	MPI_File_open(MPI_COMM_WORLD, outfile_name, MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &outfile_handle);
 	//Rank 0 writes the file header with the matrix dimensions
 	if (proc_rank == 0)
+	{
 		MPI_File_write_at(outfile_handle, 0, dimensions, 2, MPI_INT, MPI_STATUS_IGNORE);
+	}
 
 	MPI_Datatype matrix_block;
 	MPI_Type_create_subarray(2, dimensions, local_dimensions, starts_coords, MPI_ORDER_C, MPI_DOUBLE, &matrix_block);
@@ -202,6 +209,6 @@ void write_output(double* local_array, char* outfile_name, int proc_rank, int *c
 	
 	MPI_Offset header_displacement = 2 * sizeof(int);
 	MPI_File_set_view(outfile_handle, header_displacement, MPI_DOUBLE, matrix_block, "native", MPI_INFO_NULL);
-	MPI_File_write_all(outfile_handle, local_array, local_size_x * local_size_y, MPI_DOUBLE, MPI_STATUS_IGNORE);
+	MPI_File_write_all(outfile_handle, local_array, local_array_size_x * local_array_size_y, MPI_DOUBLE, MPI_STATUS_IGNORE);
 	MPI_File_close(&outfile_handle); 
 }

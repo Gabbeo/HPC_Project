@@ -16,8 +16,8 @@
 int main(int argc, char *argv[])
 {
 	#define DEBUG
-	#define TIME 10.0
-	#define ITERATIONS_PER_TIME 100
+	#define TIME 100.0
+	#define ITERATIONS_PER_TIME 20
 	#define KAPPA 0.000001
 	#define SIZE 1.0
 	#define NDIMS 2
@@ -204,7 +204,7 @@ int main(int argc, char *argv[])
 			for (int c = 1; c < (local_grid_x_size - 1); c++)
 			{
 				double x_derivative = (local_grid[r * local_grid_x_size + c - 1] + local_grid[r * local_grid_x_size + c + 1]
-					- 2 * local_grid[r * local_grid_x_size + c - 1]) / h_x_sqrd;
+					- 2 * local_grid[r * local_grid_x_size + c]) / h_x_sqrd;
 
 				double y_derivative = (local_grid[(r - 1) * local_grid_x_size + c] + local_grid[(r + 1) * local_grid_x_size + c]
 					- 2 * local_grid[r * local_grid_x_size + c]) / h_y_sqrd;
@@ -229,7 +229,13 @@ int main(int argc, char *argv[])
 		// Set boundary values again for the new grid.
 		set_boundary_values(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
 	}
-	
+
+	// Save the data with collective I/O.
+	int new_grid_size_x, new_grid_size_y = 0;
+	double* new_grid = remove_ghost_cells(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders, &new_grid_size_y, &new_grid_size_x);
+	write_output(new_grid, "result.bin", world_rank_2d, world_coord_2d, new_grid_size_y, new_grid_size_x, new_grid_size_y * y_nodes, new_grid_size_x * x_nodes);
+
+	free (new_grid);
 	free(local_grid);
 	free(sendbuf);
 	free(recvbuf);
