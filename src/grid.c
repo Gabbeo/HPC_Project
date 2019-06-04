@@ -5,17 +5,6 @@ void print_usage(char *program)
 	fprintf(stderr, "Usage: %s [-r size of cell grid edge, default 1000]\n [-s enables scaling functionality]\n", program);
 }
 
-double** create_two_dimensional_grid(int array_size_y, int array_size_x)
-{
-	double** array = malloc(array_size_y * sizeof(int*));
-	for (int i = 0; i < array_size_y; i++) 
-	{
-		array[i] = calloc(array_size_x, sizeof(double));
-	}
-
-	return array;
-}
-
 void print_grid(double* grid, int array_size_y, int array_size_x) 
 {
 	for (int r = 0; r < array_size_y; r++)
@@ -212,3 +201,15 @@ void write_output(double* local_array, char* outfile_name, int proc_rank, int *c
 	MPI_File_write_all(outfile_handle, local_array, local_array_size_x * local_array_size_y, MPI_DOUBLE, MPI_STATUS_IGNORE);
 	MPI_File_close(&outfile_handle); 
 }
+
+void stencil_2d_heat_eq(double* old_grid, double* new_grid, int grid_size_x, int r, int c, double h_x_sqrd, double h_y_sqrd, double kappa_delta_t)
+{
+	double x_derivative = (old_grid[r * grid_size_x + c - 1] + old_grid[r * grid_size_x + c + 1]
+				- 2 * old_grid[r * grid_size_x + c]) / h_x_sqrd;
+
+	double y_derivative = (old_grid[(r - 1) * grid_size_x + c] + old_grid[(r + 1) * grid_size_x + c]
+		- 2 * old_grid[r * grid_size_x + c]) / h_y_sqrd;
+
+	new_grid[r * grid_size_x + c] = old_grid[r * grid_size_x + c] + kappa_delta_t * (x_derivative + y_derivative);
+}
+

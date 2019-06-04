@@ -4,7 +4,6 @@
 #include <string.h>
 #include <math.h>
 
-
 #include "grid.h"
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y)) // Credit: https://stackoverflow.com/questions/3437404/min-and-max-in-c
@@ -16,7 +15,7 @@
 int main(int argc, char *argv[])
 {
 	#define DEBUG
-	#define TIME 100.0
+	#define TIME 1000.0
 	#define ITERATIONS_PER_TIME 20
 	#define KAPPA 0.000001
 	#define SIZE 1.0
@@ -32,7 +31,6 @@ int main(int argc, char *argv[])
 	int x_nodes = 1;
 	int y_nodes = 1;
 	int number_of_time_steps = (int) TIME * ITERATIONS_PER_TIME; 	// Default value.
-	int open_mp_threads = 1;
 	MPI_Comm cart_comm;
 	
 	// Local variables
@@ -78,7 +76,7 @@ int main(int argc, char *argv[])
 	if (world_rank == 0) 
 	{
 		printf("\nSolving the 2D heat equation with a grid of size, x:%d, y:%d\n", global_grid_x_size, global_grid_y_size);
-		printf("Number of OpenMP threads per node: %d\n", open_mp_threads);
+		printf("Number of OpenMP threads per node: %d\n", omp_get_num_threads());
 		printf("Number of nodes processing nodes, X: %d, Y: %d\n", x_nodes, y_nodes);
 
 		if (weak_scaling)
@@ -223,37 +221,59 @@ int main(int argc, char *argv[])
 		// Peform the numerical solving using Taylor expansion.
 		// We should never have a cell on the edge as the center in the iteration.
 		// All cells on the edge are either boundary values or ghost cells.
+
+		// First prepare and send ghost cells with non-blocking group collectives.
+		// First fill sendbuffer.
+		from_grid_to_ghost_array(local_grid, local_grid_y_size, local_grid_x_size, sendbuf);
+		// Send/receive
+		MPI_Request request;
+		MPI_Ineighbor_alltoallv(sendbuf, sendcounts, sdispls, MPI_DOUBLE, recvbuf, sendcounts, sdispls, MPI_DOUBLE, cart_comm, &request);
+
+		// First we do the inner cells that do not depend on the ghost cells.
 		#pragma omp parallel for
-		for (int r = 1; r < (local_grid_y_size - 1); r++) 
+		for (int r = 2; r < (local_grid_y_size - 2); r++) 
 		{
-			for (int c = 1; c < (local_grid_x_size - 1); c++)
+			for (int c = 2; c < (local_grid_x_size - 2); c++)
 			{
-				double x_derivative = (local_grid[r * local_grid_x_size + c - 1] + local_grid[r * local_grid_x_size + c + 1]
-					- 2 * local_grid[r * local_grid_x_size + c]) / h_x_sqrd;
-
-				double y_derivative = (local_grid[(r - 1) * local_grid_x_size + c] + local_grid[(r + 1) * local_grid_x_size + c]
-					- 2 * local_grid[r * local_grid_x_size + c]) / h_y_sqrd;
-
-				new_grid[r * local_grid_x_size + c] = local_grid[r * local_grid_x_size + c] + kappa_delta_t * (x_derivative + y_derivative);
+				stencil_2d_heat_eq(local_grid, new_grid, local_grid_x_size, r, c, h_x_sqrd, h_y_sqrd, kappa_delta_t);
 			}
 		}
 
-		free(local_grid);
-		local_grid = new_grid;
+		// Set boundary values again for the new grid. Should be done before out edges are calculated.
+		set_boundary_values(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
 
-		// Send/receive ghost cells.
-		// First fill sendbuffer.
-		from_grid_to_ghost_array(local_grid, local_grid_y_size, local_grid_x_size, sendbuf);
-
-		// Send/receive
-		MPI_Neighbor_alltoallv(sendbuf, sendcounts, sdispls, MPI_DOUBLE, recvbuf, sendcounts, sdispls, MPI_DOUBLE, cart_comm);
-
+		// Wait for communcation to finish.
+		MPI_Wait(&request, MPI_STATUS_IGNORE);
 		// Transfer from receivebuffer to grid.
 		from_ghost_array_to_grid(recvbuf, local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
+		
+		// Perform computations on the edge.
+		#pragma omp parallel for
+		for (int r = 1; r < (local_grid_y_size - 1); r++) // Calculate E & W edges.
+		{
+			int c = 1;
+			stencil_2d_heat_eq(local_grid, new_grid, local_grid_x_size, r, c, h_x_sqrd, h_y_sqrd, kappa_delta_t);
 
-		// Set boundary values again for the new grid.
-		set_boundary_values(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
+			c = local_grid_x_size - 2; // < (local_grid_x_size - 1)
+			stencil_2d_heat_eq(local_grid, new_grid, local_grid_x_size, r, c, h_x_sqrd, h_y_sqrd, kappa_delta_t);
+		}
+
+		#pragma omp parallel for
+		for (int c = 1; c < (local_grid_x_size - 1); c++)
+		{
+			int r = 1;
+			stencil_2d_heat_eq(local_grid, new_grid, local_grid_x_size, r, c, h_x_sqrd, h_y_sqrd, kappa_delta_t);
+
+			r = local_grid_y_size - 2; // < (local_grid_y_size - 1)
+			stencil_2d_heat_eq(local_grid, new_grid, local_grid_x_size, r, c, h_x_sqrd, h_y_sqrd, kappa_delta_t);
+		}
+
+		free(local_grid); // Delete old grid.
+		local_grid = new_grid;
 	}
+
+	// Set boundary values one last time for niceness!dd
+	set_boundary_values(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders);
 
 	// Save the data with collective I/O.
 	int new_grid_size_x, new_grid_size_y = 0;
