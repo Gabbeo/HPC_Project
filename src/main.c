@@ -93,23 +93,45 @@ int main(int argc, char *argv[])
 	}
 	#endif
 
-	// Check for configuration errors.
-	// Check if the solution will converge according to the expression stated in the pdf.
 	double delta_t = 1.0 / (double) ITERATIONS_PER_TIME;
 	double h_x_sqrd = pow(SIZE / (double) global_grid_x_size, 2);
 	double h_y_sqrd = pow(SIZE / (double) global_grid_y_size, 2);
 
-	if (delta_t > (MIN(h_x_sqrd, h_y_sqrd) / (4 * KAPPA))) 
+	// Check for configuration errors.
+	// Check if the solution will converge according to the expression stated in the pdf.
+	if (world_rank == 0) 
 	{
-		printf("ERROR: The time step length is not fine enough to ensure convergence!\n");
-		exit(EXIT_FAILURE);
-	}
+		if (delta_t > (MIN(h_x_sqrd, h_y_sqrd) / (4 * KAPPA))) 
+		{
+			fprintf(stderr, "ERROR: The time step length is not fine enough to ensure convergence!\n");
+			exit(EXIT_FAILURE);
+		}
 
-	// Check that the calculation grid is evenly divisible amongst the nodes.
-	if (global_grid_x_size % x_nodes != 0 || global_grid_y_size % y_nodes != 0)
-	{
-		printf("ERROR: The calculation grid cannot be evenly distibuted amongst the computation nodes!\n");
-		exit(EXIT_FAILURE);
+		// Check that the number of total processes matches the division of nodes.
+		if (x_nodes <= 0 || y_nodes <= 0)
+		{
+			fprintf(stderr, "ERROR: Number of nodes must be greater than 0!\n");
+			exit(EXIT_FAILURE);
+		}
+
+		if (global_grid_x_size <= 0 || global_grid_y_size <= 0)
+		{
+			fprintf(stderr, "The size of the grid must be greater than zero in both directions!\n");
+			exit(EXIT_FAILURE);
+		} 
+
+		if (x_nodes * y_nodes != world_size)
+		{
+			fprintf(stderr, "The number of nodes in the node-grid must be equal to the nodes assigned in mpirun!\n");
+			exit(EXIT_FAILURE);
+		}
+
+		// Check that the calculation grid is evenly divisible amongst the nodes.
+		if (global_grid_x_size % x_nodes != 0 || global_grid_y_size % y_nodes != 0)
+		{
+			fprintf(stderr, "ERROR: The calculation grid cannot be evenly distibuted amongst the computation nodes!\n");
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	// Preprocessing and setting up communication.
@@ -136,7 +158,7 @@ int main(int argc, char *argv[])
 		ghost_borders[i] = (bordering_ranks[i] != MPI_PROC_NULL);
 	}
 
-	#ifdef DEBUG
+	#ifdef DEBUG3
 	printf("I am %d: (%d, %d); originally 2d_rank %d.\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank);
 	#endif
 
@@ -162,7 +184,7 @@ int main(int argc, char *argv[])
 	local_grid_y_size = (global_grid_y_size / y_nodes) + ghost_borders[N] + ghost_borders[S];
 	local_grid = calloc(local_grid_x_size * local_grid_y_size, sizeof(double));
 
-	#ifdef DEBUG
+	#ifdef DEBUG3
 	printf("Local grid size for rank %d: x: %d, y: %d\n", world_rank_2d, local_grid_x_size, local_grid_y_size);
 	#endif
 
@@ -235,7 +257,7 @@ int main(int argc, char *argv[])
 	double* new_grid = remove_ghost_cells(local_grid, local_grid_y_size, local_grid_x_size, ghost_borders, &new_grid_size_y, &new_grid_size_x);
 	write_output(new_grid, "result.bin", world_rank_2d, world_coord_2d, new_grid_size_y, new_grid_size_x, new_grid_size_y * y_nodes, new_grid_size_x * x_nodes);
 
-	free (new_grid);
+	free(new_grid);
 	free(local_grid);
 	free(sendbuf);
 	free(recvbuf);
