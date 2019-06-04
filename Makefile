@@ -4,8 +4,8 @@ OBJ = $(SRC:.c=.o)
 BIN = ./bin
 TARGET = heat_equation.out
 
-LDFLAGS = -lm 
-CFLAGS = -g -Wall -O3
+LDFLAGS = -lm  -fopenmp
+CFLAGS = -g -Wall -O3 -fopenmp
 
 all: dir $(BIN)/$(TARGET)
 

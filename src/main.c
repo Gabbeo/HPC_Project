@@ -32,8 +32,8 @@ int main(int argc, char *argv[])
 	int x_nodes = 1;
 	int y_nodes = 1;
 	int number_of_time_steps = (int) TIME * ITERATIONS_PER_TIME; 	// Default value.
+	int open_mp_threads = 1;
 	MPI_Comm cart_comm;
-	double *global_grid;
 	
 	// Local variables
 	int world_rank;
@@ -77,7 +77,8 @@ int main(int argc, char *argv[])
 	#ifdef DEBUG
 	if (world_rank == 0) 
 	{
-		printf("Solving the 2D heat equation with a grid of size x:%d, y:%d\n", global_grid_x_size, global_grid_y_size);
+		printf("\nSolving the 2D heat equation with a grid of size, x:%d, y:%d\n", global_grid_x_size, global_grid_y_size);
+		printf("Number of OpenMP threads per node: %d\n", open_mp_threads);
 		printf("Number of nodes processing nodes, X: %d, Y: %d\n", x_nodes, y_nodes);
 
 		if (weak_scaling)
@@ -205,6 +206,9 @@ int main(int argc, char *argv[])
 	// Calculate offsets in the send- and receive-buffer respectively.
 	int sdispls[dir_count] = {0, local_grid_x_size, local_grid_x_size * 2, local_grid_x_size * 2 + local_grid_y_size};
 
+	// Calculate this outside the loop.
+	double kappa_delta_t = KAPPA * delta_t;
+
 	// Loop over time.
 	for (int t = 0; t < number_of_time_steps; t++) 
 	{
@@ -219,8 +223,7 @@ int main(int argc, char *argv[])
 		// Peform the numerical solving using Taylor expansion.
 		// We should never have a cell on the edge as the center in the iteration.
 		// All cells on the edge are either boundary values or ghost cells.
-		double kappa_delta_t = KAPPA * delta_t;
-
+		#pragma omp parallel for
 		for (int r = 1; r < (local_grid_y_size - 1); r++) 
 		{
 			for (int c = 1; c < (local_grid_x_size - 1); c++)
