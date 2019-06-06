@@ -4,7 +4,7 @@ OBJ = $(SRC:.c=.o)
 BIN = ./bin
 TARGET = heat_equation.out
 
-LDFLAGS = -lm  -fopenmp
+LDFLAGS = -fopenmp
 CFLAGS = -g -Wall -O3 -fopenmp
 
 all: dir $(BIN)/$(TARGET)
@@ -18,7 +18,7 @@ ${BIN}:
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BIN)/$(TARGET): $(OBJ)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^ -lm
 
 .PHONY: clean
 clean:
