@@ -14,7 +14,7 @@
 // row 0, column 0 is in the lower left corner and increases to upwards and to the right respectively.
 int main(int argc, char *argv[])
 {
-	#define REPETITIONS 5 
+	#define REPETITIONS 5
 
     // Global vairables.
     int weak_scaling = 0; 											// Should the problem size increase with the number of nodes?
@@ -22,7 +22,6 @@ int main(int argc, char *argv[])
     int global_grid_y_size = 1000; 									// Same as above but y.
     int x_nodes = 1;
     int y_nodes = 1;
-    int time = 1;													// Time in a physical sense.
     int iterations_per_time = 100;									// Number of iterations per timestep.
     double kappa = 0.000001;
 
@@ -55,9 +54,6 @@ int main(int argc, char *argv[])
             case 't':
                 iterations_per_time = atoi(optarg);
                 break;
-            case 'T':
-                time = atoi(optarg);
-                break;
             case 'k':
                 kappa = atof(optarg);
                 break;
@@ -74,7 +70,6 @@ int main(int argc, char *argv[])
 		global_grid_y_size, 									// Same as above but y.
 		x_nodes,
 		y_nodes,
-		time,												// Time in a physical sense.
 		iterations_per_time,									// Number of iterations per timestep.
 		kappa
 	};

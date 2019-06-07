@@ -1,5 +1,7 @@
 #include "grid.h"
 
+#define BORDER_TEMP 1000
+
 void print_usage(char *program)
 {
 	fprintf(stderr, "Usage: %s [-r size of cell grid edge, default 1000]\n [-s enables scaling functionality]\n", program);
@@ -30,28 +32,28 @@ void set_boundary_values(double* array, int array_size_y, int array_size_x, int*
 	{
 		for (int i = 0; i < array_size_x; i++)
 		{	
-			array[(array_size_y - 1) * array_size_x + i] = 1.0;
+			array[(array_size_y - 1) * array_size_x + i] = BORDER_TEMP;
 		}
 	}
 	if (!ghost_borders[E]) // Rightmost column.
 	{
 		for (int i = 0; i < array_size_y; i++) 
 		{
-			array[i * array_size_x + array_size_x - 1] = 1.0;
+			array[i * array_size_x + array_size_x - 1] = BORDER_TEMP;
 		}
 	}
 	if (!ghost_borders[S]) // Bottom row.
 	{
 		for (int i = 0; i < array_size_x; i++)
 		{
-			array[i] = 1.0;
+			array[i] = BORDER_TEMP;
 		}
 	}
 	if (!ghost_borders[W]) // Leftmost column.
 	{
 		for (int i = 0; i < array_size_y; i++) 
 		{
-			array[i * array_size_x] = 1.0;
+			array[i * array_size_x] = BORDER_TEMP;
 		}
 	}
 }

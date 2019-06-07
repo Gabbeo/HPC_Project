@@ -3,7 +3,7 @@
 void solve_heat_equation(Settings settings)
 {
     #define DEBUG
-    #define SIZE 1.0
+    #define SIZE 100.0
     #define NDIMS 2
     #define PERIODIC 0
     #define REORDER 1
@@ -15,7 +15,6 @@ void solve_heat_equation(Settings settings)
     int global_grid_y_size = settings.global_grid_y_size; 									// Same as above but y.
     int x_nodes = settings.x_nodes;
     int y_nodes = settings.y_nodes;
-    int time = settings.time;													// Time in a physical sense.
     int iterations_per_time = settings.iterations_per_time;									// Number of iterations per timestep.
     double kappa = settings.kappa;
     MPI_Comm cart_comm;
@@ -32,10 +31,18 @@ void solve_heat_equation(Settings settings)
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
+    if (weak_scaling == 1) 
+    {
+        global_grid_x_size *= x_nodes;
+        global_grid_y_size *= y_nodes;
+    }
+
+    printf("x: %d, y: %d", global_grid_x_size, global_grid_y_size);
+
     double *local_grid;
-    double delta_t = 1.0 / iterations_per_time;
     double h_x_sqrd = pow(SIZE / (double) global_grid_x_size, 2);
     double h_y_sqrd = pow(SIZE / (double) global_grid_y_size, 2);
+    double delta_t = h_x_sqrd * h_y_sqrd / (2 * kappa * (h_x_sqrd + h_y_sqrd)) ;
 
     // Check for configuration errors.
     // Check if the solution will converge according to the expression stated in the pdf.
@@ -102,21 +109,6 @@ void solve_heat_equation(Settings settings)
     printf("I am %d: (%d, %d); originally 2d_rank %d.\n", world_rank_2d, world_coord_2d[0], world_coord_2d[1], world_rank);
     #endif
 
-    // Grid generation/distribution for world_rank 0.
-    if (world_rank == 0) 
-    {
-        if (!weak_scaling) // Strong scaling enabled (default).
-        {
-            // This means that we should generate a grid and "scatter" it.
-            // Allocate memory.
-            // TODO: We should distribute inital values in a sparse way instead!
-        }
-        else // Weak scaling.
-        {
-            // TODO
-        }
-    }	
-
     // Perform the numerical solving of the equation.
     // We should increase the size of the grid if there are ghost cells on the edges.
     // The bitshifting adds one to the dimension if there is a ghost cell on that dimension.
@@ -147,10 +139,9 @@ void solve_heat_equation(Settings settings)
 
     // Calculate this outside the loop.
     double kappa_delta_t = kappa * delta_t;
-    int total_number_of_time_steps = time * iterations_per_time;
 
     // Loop over time.
-    for (int t = 0; t < total_number_of_time_steps; t++) 
+    for (int t = 0; t < iterations_per_time; t++) 
     {
         #ifdef DEBUG
         if (world_rank_2d == 0 && t % 100 == 0) 

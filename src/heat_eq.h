@@ -17,7 +17,6 @@ typedef struct
     int global_grid_y_size; 									// Same as above but y.
     int x_nodes;
     int y_nodes;
-    int time;													// Time in a physical sense.
     int iterations_per_time;									// Number of iterations per timestep.
     double kappa;
 } Settings;
