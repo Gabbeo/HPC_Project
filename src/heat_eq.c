@@ -2,7 +2,6 @@
 
 void solve_heat_equation(Settings settings)
 {
-    #define DEBUG
     #define SIZE 100.0
     #define NDIMS 2
     #define PERIODIC 0
